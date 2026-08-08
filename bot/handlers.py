@@ -17,7 +17,6 @@ from keyboards import (
 router = Router()
 logger = logging.getLogger(__name__)
 
-# Инициализация БД
 SessionLocal = init_db(settings.DATABASE_URL)
 
 def get_db():
@@ -26,8 +25,6 @@ def get_db():
         return db
     finally:
         db.close()
-
-# ========== ВСПОМОГАТЕЛЬНЫЕ ==========
 
 def get_or_create_creator(db: Session, user) -> Creator:
     creator = db.query(Creator).filter(Creator.telegram_id == user.id).first()
@@ -43,31 +40,36 @@ def get_or_create_creator(db: Session, user) -> Creator:
     return creator
 
 def format_product_card(product: Product) -> str:
-    return f"""📦 <b>{product.name}</b>
-💰 <b>Цена:</b> {product.price_stars} Stars
-📊 <b>Продаж:</b> {product.sales_count}
-📝 {product.description or "Без описания"}
-"""
+    lines = [
+        f"📦 <b>{product.name}</b>",
+        f"💰 <b>Цена:</b> {product.price_stars} Stars",
+        f"📊 <b>Продаж:</b> {product.sales_count}",
+        f"📝 {product.description or 'Без описания'}"
+    ]
+    return "\n".join(lines)
 
-# ========== СТАРТ И МЕНЮ ==========
+# ========== START & MENU ==========
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     db = get_db()
     creator = get_or_create_creator(db, message.from_user)
 
-    welcome_text = f"""👋 Привет, {message.from_user.first_name}!
+    welcome_lines = [
+        f"👋 Привет, {message.from_user.first_name}!",
+        "",
+        "🛍 <b>Telegram Digital Store</b> — продавай цифровые товары прямо в Telegram.",
+        "",
+        "<b>Как это работает:</b>",
+        "1️⃣ Загрузи свой товар (PDF, видео, шаблоны)",
+        "2️⃣ Установи цену в Stars",
+        "3️⃣ Получи ссылку на магазин",
+        "4️⃣ Покупатели платят — деньги приходят тебе",
+        "",
+        f"<b>Комиссия платформы:</b> {settings.COMMISSION_PERCENT}%"
+    ]
+    welcome_text = "\n".join(welcome_lines)
 
-🛍 <b>Telegram Digital Store</b> — продавай цифровые товары прямо в Telegram.
-
-<b>Как это работает:</b>
-1️⃣ Загрузи свой товар (PDF, видео, шаблоны)
-2️⃣ Установи цену в Stars
-3️⃣ Получи ссылку на магазин
-4️⃣ Покупатели платят — деньги приходят тебе
-
-<b>Комиссия платформы:</b> {settings.COMMISSION_PERCENT}%
-"""
     await message.answer(welcome_text, reply_markup=main_menu_kb(bool(creator)))
 
 @router.callback_query(F.data == "main_menu")
@@ -77,7 +79,7 @@ async def back_to_menu(callback: CallbackQuery):
     await callback.message.edit_text("🏠 Главное меню", reply_markup=main_menu_kb(bool(creator)))
     await callback.answer()
 
-# ========== СТАТЬ КРЕАТОРОМ ==========
+# ========== BECOME CREATOR ==========
 
 @router.callback_query(F.data == "become_creator")
 async def become_creator(callback: CallbackQuery):
@@ -89,14 +91,13 @@ async def become_creator(callback: CallbackQuery):
     )
     await callback.answer()
 
-# ========== ДОБАВЛЕНИЕ ТОВАРА (FSM) ==========
+# ========== ADD PRODUCT (FSM) ==========
 
 @router.callback_query(F.data == "add_product")
 async def add_product_start(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AddProduct.name)
     await callback.message.edit_text(
-        "📝 <b>Шаг 1/4</b>
-Введи название товара:",
+        "📝 <b>Шаг 1/4</b>\nВведи название товара:",
         reply_markup=back_to_menu_kb()
     )
     await callback.answer()
@@ -106,8 +107,7 @@ async def process_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text)
     await state.set_state(AddProduct.description)
     await message.answer(
-        "📝 <b>Шаг 2/4</b>
-Введи описание товара (или отправь /skip):",
+        "📝 <b>Шаг 2/4</b>\nВведи описание товара (или отправь /skip):",
         reply_markup=back_to_menu_kb()
     )
 
@@ -117,8 +117,7 @@ async def process_description(message: Message, state: FSMContext):
     await state.update_data(description=desc)
     await state.set_state(AddProduct.price)
     await message.answer(
-        "💎 <b>Шаг 3/4</b>
-Введи цену в Telegram Stars (минимум 1):",
+        "💎 <b>Шаг 3/4</b>\nВведи цену в Telegram Stars (минимум 1):",
         reply_markup=back_to_menu_kb()
     )
 
@@ -131,8 +130,7 @@ async def process_price(message: Message, state: FSMContext):
         await state.update_data(price=price)
         await state.set_state(AddProduct.file)
         await message.answer(
-            "📎 <b>Шаг 4/4</b>
-Отправь файл товара (документ, фото, видео, аудио):",
+            "📎 <b>Шаг 4/4</b>\nОтправь файл товара (документ, фото, видео, аудио):",
             reply_markup=back_to_menu_kb()
         )
     except ValueError:
@@ -140,7 +138,6 @@ async def process_price(message: Message, state: FSMContext):
 
 @router.message(AddProduct.file, F.content_type.in_({"document", "photo", "video", "audio"}))
 async def process_file(message: Message, state: FSMContext):
-    # Определяем file_id в зависимости от типа
     if message.document:
         file_id = message.document.file_id
         file_name = message.document.file_name
@@ -164,14 +161,17 @@ async def process_file(message: Message, state: FSMContext):
     await state.update_data(file_id=file_id, file_name=file_name, file_size=file_size)
     data = await state.get_data()
 
-    preview = f"""📋 <b>Проверь данные:</b>
-
-📦 <b>Название:</b> {data['name']}
-📝 <b>Описание:</b> {data['description'] or 'Нет'}
-💎 <b>Цена:</b> {data['price']} Stars
-📎 <b>Файл:</b> {file_name}
-
-Всё верно?"""
+    preview_lines = [
+        "📋 <b>Проверь данные:</b>",
+        "",
+        f"📦 <b>Название:</b> {data['name']}",
+        f"📝 <b>Описание:</b> {data.get('description', 'Нет')}",
+        f"💎 <b>Цена:</b> {data['price']} Stars",
+        f"📎 <b>Файл:</b> {file_name}",
+        "",
+        "Всё верно?"
+    ]
+    preview = "\n".join(preview_lines)
 
     await state.set_state(AddProduct.confirm)
     await message.answer(preview, reply_markup=add_product_confirm_kb())
@@ -198,15 +198,16 @@ async def confirm_product(callback: CallbackQuery, state: FSMContext):
 
     store_url = f"{settings.MINI_APP_URL}?creator={creator.telegram_id}"
 
+    text_lines = [
+        "✅ <b>Товар опубликован!</b>",
+        "",
+        f"🔗 <b>Ссылка на магазин:</b>\n{store_url}",
+        "",
+        "Отправь её подписчикам — они смогут купить товар прямо в Telegram."
+    ]
+
     await callback.message.edit_text(
-        f"✅ <b>Товар опубликован!</b>
-
-"
-        f"🔗 <b>Ссылка на магазин:</b>
-{store_url}
-
-"
-        f"Отправь её подписчикам — они смогут купить товар прямо в Telegram.",
+        "\n".join(text_lines),
         reply_markup=miniapp_store_link(store_url)
     )
     await state.clear()
@@ -220,7 +221,7 @@ async def cancel_product(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("❌ Добавление отменено.", reply_markup=main_menu_kb(bool(creator)))
     await callback.answer()
 
-# ========== МОИ ТОВАРЫ ==========
+# ========== MY PRODUCTS ==========
 
 @router.callback_query(F.data == "my_products")
 async def my_products(callback: CallbackQuery):
@@ -230,25 +231,20 @@ async def my_products(callback: CallbackQuery):
 
     if not products:
         await callback.message.edit_text(
-            "📭 У тебя пока нет товаров.
-
-Добавь первый!",
+            "📭 У тебя пока нет товаров.\n\nДобавь первый!",
             reply_markup=main_menu_kb(True)
         )
         await callback.answer()
         return
 
-    text = "📦 <b>Твои товары:</b>
-
-"
+    lines = ["📦 <b>Твои товары:</b>\n"]
     for p in products:
-        text += f"• {p.name} — {p.price_stars} Stars (продаж: {p.sales_count})
-"
+        lines.append(f"• {p.name} — {p.price_stars} Stars (продаж: {p.sales_count})")
 
-    await callback.message.edit_text(text, reply_markup=main_menu_kb(True))
+    await callback.message.edit_text("\n".join(lines), reply_markup=main_menu_kb(True))
     await callback.answer()
 
-# ========== СТАТИСТИКА ==========
+# ========== STATS ==========
 
 @router.callback_query(F.data == "stats")
 async def stats(callback: CallbackQuery):
@@ -263,38 +259,42 @@ async def stats(callback: CallbackQuery):
     ).all()
     earned = sum(p.creator_earned for p in total_earned)
 
-    text = f"""📊 <b>Статистика:</b>
+    lines = [
+        "📊 <b>Статистика:</b>",
+        "",
+        f"📦 Товаров: {len(products)}",
+        f"💰 Продаж: {total_sales}",
+        f"⭐ Заработано: {earned} Stars",
+        f"💎 Баланс: {creator.balance_stars} Stars"
+    ]
 
-📦 Товаров: {len(products)}
-💰 Продаж: {total_sales}
-⭐ Заработано: {earned} Stars
-💎 Баланс: {creator.balance_stars} Stars
-"""
-    await callback.message.edit_text(text, reply_markup=main_menu_kb(True))
+    await callback.message.edit_text("\n".join(lines), reply_markup=main_menu_kb(True))
     await callback.answer()
 
-# ========== БАЛАНС ==========
+# ========== BALANCE ==========
 
 @router.callback_query(F.data == "balance")
 async def balance(callback: CallbackQuery):
     db = get_db()
     creator = db.query(Creator).filter(Creator.telegram_id == callback.from_user.id).first()
 
-    text = f"""💰 <b>Твой баланс:</b>
+    lines = [
+        "💰 <b>Твой баланс:</b>",
+        "",
+        f"⭐ Доступно: {creator.balance_stars} Stars",
+        "",
+        "<b>Как вывести:</b>",
+        "1. Перейди в @BotFather → Bot Settings → Payments",
+        "2. Выбери Telegram Stars → Transfer",
+        "3. Укажи свой кошелёк TON",
+        "",
+        "Минимум для вывода: 1000 Stars (~$13)"
+    ]
 
-⭐ Доступно: {creator.balance_stars} Stars
-
-<b>Как вывести:</b>
-1. Перейди в @BotFather → Bot Settings → Payments
-2. Выбери Telegram Stars → Transfer
-3. Укажи свой кошелёк TON
-
-Минимум для вывода: 1000 Stars (~$13)
-"""
-    await callback.message.edit_text(text, reply_markup=main_menu_kb(True))
+    await callback.message.edit_text("\n".join(lines), reply_markup=main_menu_kb(True))
     await callback.answer()
 
-# ========== МОЙ МАГАЗИН ==========
+# ========== MY STORE ==========
 
 @router.callback_query(F.data == "my_store")
 async def my_store(callback: CallbackQuery):
@@ -303,17 +303,12 @@ async def my_store(callback: CallbackQuery):
     store_url = f"{settings.MINI_APP_URL}?creator={creator.telegram_id}"
 
     await callback.message.edit_text(
-        f"🛍 <b>Твой магазин:</b>
-
-{store_url}
-
-"
-        f"Поделись этой ссылкой в своём канале или соцсетях!",
+        f"🛍 <b>Твой магазин:</b>\n\n{store_url}\n\nПоделись этой ссылкой в своём канале или соцсетях!",
         reply_markup=miniapp_store_link(store_url)
     )
     await callback.answer()
 
-# ========== INLINE MODE (поиск товаров) ==========
+# ========== INLINE MODE ==========
 
 @router.inline_query()
 async def inline_search(inline_query: InlineQuery):
@@ -337,10 +332,7 @@ async def inline_search(inline_query: InlineQuery):
                 title=f"{p.name} — {p.price_stars} Stars",
                 description=p.description or "Цифровой товар",
                 input_message_content=InputTextMessageContent(
-                    message_text=f"🛍 <b>{p.name}</b>
-💰 {p.price_stars} Stars
-
-{store_url}"
+                    message_text=f"🛍 <b>{p.name}</b>\n💰 {p.price_stars} Stars\n\n{store_url}"
                 ),
                 reply_markup=miniapp_store_link(store_url)
             )
@@ -348,7 +340,7 @@ async def inline_search(inline_query: InlineQuery):
 
     await inline_query.answer(results, cache_time=1)
 
-# ========== ПОКУПКА ЧЕРЕЗ БОТА ==========
+# ========== BUY ==========
 
 @router.callback_query(F.data.startswith("buy_"))
 async def buy_product(callback: CallbackQuery):
@@ -385,14 +377,13 @@ async def process_payment(callback: CallbackQuery, bot: Bot):
         await callback.answer("❌ Товар не найден.", show_alert=True)
         return
 
-    # Создаём инвойс для оплаты Stars
     await bot.send_invoice(
         chat_id=callback.from_user.id,
         title=product.name,
         description=product.description or "Цифровой товар",
         payload=f"product_{product_id}_{callback.from_user.id}",
-        provider_token="",  # Пусто для Stars
-        currency="XTR",  # Telegram Stars
+        provider_token="",
+        currency="XTR",
         prices=[{"label": product.name, "amount": price}]
     )
     await callback.answer()
@@ -406,7 +397,6 @@ async def successful_payment(message: Message, bot: Bot):
     payment = message.successful_payment
     payload = payment.invoice_payload
 
-    # Парсим payload: product_{id}_{buyer_id}
     parts = payload.split("_")
     product_id = int(parts[1])
     buyer_id = int(parts[2])
@@ -415,11 +405,9 @@ async def successful_payment(message: Message, bot: Bot):
     product = db.query(Product).filter(Product.id == product_id).first()
     creator = product.creator
 
-    # Расчёт комиссии
     commission = int(payment.total_amount * settings.COMMISSION_PERCENT / 100)
     creator_earned = payment.total_amount - commission
 
-    # Сохраняем покупку
     purchase = Purchase(
         product_id=product_id,
         buyer_telegram_id=buyer_id,
@@ -431,36 +419,24 @@ async def successful_payment(message: Message, bot: Bot):
     )
     db.add(purchase)
 
-    # Обновляем баланс креатора
     creator.balance_stars += creator_earned
     product.sales_count += 1
     db.commit()
 
-    # Отправляем файл покупателю
     await bot.send_document(
         chat_id=buyer_id,
         document=product.file_id,
-        caption=f"✅ <b>Спасибо за покупку!</b>
-
-📦 {product.name}
-💰 Оплачено: {payment.total_amount} Stars
-
-Сохрани этот файл — он отправлен в твои Избранные."
+        caption=f"✅ <b>Спасибо за покупку!</b>\n\n📦 {product.name}\n💰 Оплачено: {payment.total_amount} Stars\n\nСохрани этот файл — он отправлен в твои Избранные."
     )
 
-    # Уведомляем креатора
     await bot.send_message(
         chat_id=creator.telegram_id,
-        text=f"🎉 <b>Новая продажа!</b>
-
-📦 {product.name}
-💰 +{creator_earned} Stars (комиссия {commission} Stars)
-💎 Баланс: {creator.balance_stars} Stars"
+        text=f"🎉 <b>Новая продажа!</b>\n\n📦 {product.name}\n💰 +{creator_earned} Stars (комиссия {commission} Stars)\n💎 Баланс: {creator.balance_stars} Stars"
     )
 
     await message.answer("✅ Оплата прошла успешно! Файл отправлен в твои Избранные.")
 
-# ========== УДАЛЕНИЕ ТОВАРА ==========
+# ========== DELETE ==========
 
 @router.callback_query(F.data.startswith("delete_"))
 async def delete_product(callback: CallbackQuery):
@@ -478,24 +454,26 @@ async def delete_product(callback: CallbackQuery):
     await callback.message.edit_text("🗑 Товар удалён.", reply_markup=main_menu_kb(True))
     await callback.answer()
 
-# ========== ПОМОЩЬ ==========
+# ========== HELP ==========
 
 @router.callback_query(F.data == "help")
 async def help_cmd(callback: CallbackQuery):
-    text = """❓ <b>Помощь</b>
+    lines = [
+        "❓ <b>Помощь</b>",
+        "",
+        "<b>Для креаторов:</b>",
+        "• Добавляй товары через «➕ Добавить товар»",
+        "• Устанавливай цену в Telegram Stars",
+        "• Делись ссылкой на магазин",
+        "• Получай оплату мгновенно",
+        "",
+        "<b>Для покупателей:</b>",
+        "• Найди товар через поиск",
+        "• Оплати Stars (покупаются в Settings → Stars)",
+        "• Получи файл мгновенно",
+        "",
+        "<b>Поддержка:</b> @your_support"
+    ]
 
-<b>Для креаторов:</b>
-• Добавляй товары через «➕ Добавить товар»
-• Устанавливай цену в Telegram Stars
-• Делись ссылкой на магазин
-• Получай оплату мгновенно
-
-<b>Для покупателей:</b>
-• Найди товар через поиск
-• Оплати Stars (покупаются в Settings → Stars)
-• Получи файл мгновенно
-
-<b>Поддержка:</b> @your_support
-"""
-    await callback.message.edit_text(text, reply_markup=back_to_menu_kb())
+    await callback.message.edit_text("\n".join(lines), reply_markup=back_to_menu_kb())
     await callback.answer()
