@@ -27,17 +27,12 @@ async def start_bot():
     await dp.start_polling(bot)
 
 async def main():
-    # Запускаем бота в фоне
     bot_task = asyncio.create_task(start_bot())
-    
-    # Запускаем FastAPI на порту из $PORT (Render задаёт автоматически)
     port = int(os.environ.get("PORT", 8080))
     config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
-    
     logger.info(f"🚀 FastAPI starting on port {port}")
     await server.serve()
-    
     bot_task.cancel()
 
 if __name__ == "__main__":
