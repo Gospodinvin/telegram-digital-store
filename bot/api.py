@@ -48,14 +48,19 @@ class CreatorResponse(BaseModel):
 async def get_products(creator_id: int | None = None):
     db = get_db()
     query = db.query(Product).filter(Product.is_active == True)
-
+    
     creator = None
     if creator_id:
-        query = query.filter(Product.creator_id == creator_id)
+        # Сначала найдём креатора по telegram_id
         creator = db.query(Creator).filter(Creator.telegram_id == creator_id).first()
-
+        if creator:
+            # Теперь ищем товары по ВНУТРЕННЕМУ id креатора
+            query = query.filter(Product.creator_id == creator.id)
+        else:
+            return {"products": [], "creator": None}
+    
     products = query.order_by(Product.sales_count.desc()).all()
-
+    
     return {
         "products": [
             {
