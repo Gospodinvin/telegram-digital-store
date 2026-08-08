@@ -101,3 +101,7 @@ async def get_product(product_id: int):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
