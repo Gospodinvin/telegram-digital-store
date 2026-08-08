@@ -3,7 +3,7 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher
-from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
 import uvicorn
 
 from config import settings
@@ -13,7 +13,10 @@ from api import app as fastapi_app
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-bot = Bot(token=settings.BOT_TOKEN.get_secret_value(), parse_mode=ParseMode.HTML)
+bot = Bot(
+    token=settings.BOT_TOKEN.get_secret_value(),
+    default=DefaultBotProperties(parse_mode="HTML")
+)
 dp = Dispatcher()
 dp.include_router(router)
 

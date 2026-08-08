@@ -6,7 +6,7 @@ class Settings(BaseSettings):
     ADMIN_IDS: list[int] = []
     DATABASE_URL: str = "sqlite:///./store.db"
     MINI_APP_URL: str = "https://your-miniapp.vercel.app"
-    COMMISSION_PERCENT: float = 5.0  # 5% комиссия
+    COMMISSION_PERCENT: float = 5.0
 
     class Config:
         env_file = ".env"
