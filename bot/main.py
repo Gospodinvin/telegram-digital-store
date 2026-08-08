@@ -1,11 +1,10 @@
 import asyncio
 import logging
-import uvicorn
-from contextlib import asynccontextmanager
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
-from fastapi import FastAPI
+import uvicorn
 
 from config import settings
 from handlers import router
@@ -14,7 +13,6 @@ from api import app as fastapi_app
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Глобальные переменные для бота
 bot = Bot(token=settings.BOT_TOKEN.get_secret_value(), parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 dp.include_router(router)
@@ -25,21 +23,22 @@ async def start_bot():
         BotCommand(command="start", description="Запустить бота"),
         BotCommand(command="help", description="Помощь"),
     ])
+    logger.info("🤖 Bot polling started")
     await dp.start_polling(bot)
 
 async def main():
-    # Запускаем бота и FastAPI параллельно
-    import threading
-
-    # FastAPI в отдельном потоке
-    def run_api():
-        uvicorn.run(fastapi_app, host="0.0.0.0", port=8080)
-
-    api_thread = threading.Thread(target=run_api, daemon=True)
-    api_thread.start()
-
-    # Бот в основном потоке
-    await start_bot()
+    # Запускаем бота в фоне
+    bot_task = asyncio.create_task(start_bot())
+    
+    # Запускаем FastAPI на порту из $PORT (Render задаёт автоматически)
+    port = int(os.environ.get("PORT", 8080))
+    config = uvicorn.Config(fastapi_app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    
+    logger.info(f"🚀 FastAPI starting on port {port}")
+    await server.serve()
+    
+    bot_task.cancel()
 
 if __name__ == "__main__":
     asyncio.run(main())
